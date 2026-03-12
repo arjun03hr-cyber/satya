@@ -28,7 +28,7 @@ export const useAuth = () => {
 };
 
 // Use proxy or direct URL for API calls
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AuthState>({

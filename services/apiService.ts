@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 
-const API_BASE = '/api'; // Vercel routes all /api requests automatically to the api directory
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 class ApiService {
   private async getAuthHeader(): Promise<Record<string, string>> {
@@ -24,7 +24,7 @@ class ApiService {
   async fetch(endpoint: string, options: RequestInit = {}): Promise<any> {
     const headers = await this.getAuthHeader();
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
+    const response = await fetch(`${API_BASE}/api${endpoint}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
