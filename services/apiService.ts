@@ -11,8 +11,14 @@ class ApiService {
       };
     }
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token;
+    // Attempt to get our primary Custom JWT token first
+    let token = localStorage.getItem('satyakavach_token');
+    
+    // Fallback to Supabase session (if it exists)
+    if (!token) {
+      const { data: { session } } = await supabase.auth.getSession();
+      token = session?.access_token || null;
+    }
     
     if (!token) return {};
 
@@ -34,6 +40,10 @@ class ApiService {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        localStorage.removeItem('satyakavach_token');
+        window.location.href = '/login';
+      }
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || `API Error: ${response.status}`);
     }
