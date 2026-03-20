@@ -9,6 +9,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Home from './pages/Home';
 import Landing from './pages/Landing';
+import HistoryView from './pages/HistoryView';
 import PublicRoute from './components/PublicRoute';
 
 const FallbackLoader = () => (
@@ -50,6 +51,16 @@ const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <Home />
+              </ProtectedRoute>
+            } 
+          />
+
+          {/* History View Route */}
+          <Route 
+            path="/history/:id" 
+            element={
+              <ProtectedRoute>
+                <HistoryView />
               </ProtectedRoute>
             } 
           />

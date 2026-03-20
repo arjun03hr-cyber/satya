@@ -8,6 +8,40 @@ export const hashText = (text: string): string => {
 };
 
 /**
+ * Normalizes a URL by removing fragments, tracking parameters, and trailing slashes.
+ */
+export const normalizeUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = ''; // Remove fragment
+    // Remove common tracking params
+    const paramsToRemove = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid'];
+    paramsToRemove.forEach(param => parsed.searchParams.delete(param));
+    
+    let normalized = parsed.toString();
+    if (normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized.toLowerCase();
+  } catch (e) {
+    // If invalid URL, return lowercased original
+    return url.trim().toLowerCase();
+  }
+};
+
+/**
+ * Normalizes a query text for better semantic and keyword matching.
+ */
+export const normalizeQuery = (text: string): string => {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s\d]/gi, '') // Remove punctuation
+    .replace(/\s+/g, ' ') // Collapse whitespace
+    .trim();
+};
+
+
+/**
  * Executes a Promise-returning operation with exponential backoff retries.
  * NOTE: Rate limit errors (429) are NOT retried — retrying a rate-limited key
  * immediately makes the quota worse. They are thrown immediately so the user

@@ -26,35 +26,66 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ error: 'Unauthorized required for history' });
     }
 
-    // 2. Handle GET (fetch history)
+    // 2. Handle GET (fetch history or single item)
     if (req.method === 'GET') {
-      const { data: history, error } = await supabaseServer
-        .from('analysis_history')
-        .select('*')
-        .eq('user_id', uid)
-        .order('created_at', { ascending: false })
-        .limit(20);
+      const { id } = req.query;
 
-      if (error) {
-        console.error('Supabase history fetch error:', error);
-        throw new Error('Failed to fetch history from database');
-      }
+      if (id) {
+        // Fetch single history item
+        const { data: record, error } = await supabaseServer
+          .from('analysis_history')
+          .select('*')
+          .eq('user_id', uid)
+          .eq('id', id)
+          .single();
 
-      // Format to match frontend HistoryItem structure expectations
-      const formattedHistory = (history || []).map((h: any) => ({
-        id: h.id,
-        userId: h.user_id,
-        sourceText: h.content,
-        verdict: h.verdict,
-        confidence: h.confidence,
-        timestamp: h.created_at,
-        metadata: {
-          sourcesChecked: h.sources ? h.sources.length : 0,
-          processingTimeMs: 1500 // Mock variable backward compatibility
+        if (error || !record) {
+          console.error(`Supabase history fetch error for ID ${id}:`, error);
+          return res.status(404).json({ error: 'Analysis record not found' });
         }
-      }));
 
-      return res.status(200).json({ history: formattedHistory });
+        // Reconstruct AnalysisResult format
+        const analysisResult = {
+          verdict: record.verdict,
+          confidence: record.confidence,
+          explanation: record.explanation,
+          keyPoints: record.key_points || [],
+          sources: record.sources || [],
+          categories: record.categories || {},
+          cached: true
+        };
+
+        return res.status(200).json(analysisResult);
+      } else {
+        // Fetch standard history list
+        const { data: history, error } = await supabaseServer
+          .from('analysis_history')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (error) {
+          console.error('Supabase history fetch error:', error);
+          throw new Error('Failed to fetch history from database');
+        }
+
+        // Format to match frontend HistoryItem structure expectations
+        const formattedHistory = (history || []).map((h: any) => ({
+          id: h.id,
+          userId: h.user_id,
+          sourceText: h.content,
+          verdict: h.verdict,
+          confidence: h.confidence,
+          timestamp: h.created_at,
+          metadata: {
+            sourcesChecked: h.sources ? h.sources.length : 0,
+            processingTimeMs: 1500 // Mock variable backward compatibility
+          }
+        }));
+
+        return res.status(200).json({ history: formattedHistory });
+      }
     }
 
     // 3. Handle DELETE (remove specific analysis)

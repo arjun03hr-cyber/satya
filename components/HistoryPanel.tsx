@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { X, Search, Clock, ExternalLink, ShieldCheck, AlertTriangle, ShieldAlert, History as HistoryIcon } from 'lucide-react';
 import { apiService } from '../services/apiService';
 import { AnalysisResult } from '../types';
@@ -27,6 +28,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, onSelectRe
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (isOpen) {
@@ -49,7 +51,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, onSelectRe
           userId: "1",
           sourceText: "Scientists have discovered a new species of deep-sea jellyfish that emits purple bioluminescence.",
           verdict: "Real",
-          confidence: 0.94,
+          confidence: 94,
           timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
           metadata: { sourcesChecked: 12, processingTimeMs: 1200 }
         },
@@ -58,7 +60,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, onSelectRe
           userId: "1",
           sourceText: "The moon landing was faked on a soundstage in Hollywood directed by Stanley Kubrick.",
           verdict: "Fake",
-          confidence: 0.98,
+          confidence: 98,
           timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
           metadata: { sourcesChecked: 45, processingTimeMs: 2100 }
         }
@@ -77,22 +79,9 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, onSelectRe
     }
   };
 
-  const loadFullResult = async (item: HistoryItem) => {
-    // Re-analyze or reconstruct the AnalysisResult object. 
-    // In a real app we'd fetch the full result by ID.
-    // For this UI, we mock the AnalysisResult structure based on the history item to restore the view.
-    const restoredResult: AnalysisResult = {
-      verdict: item.verdict.toUpperCase() as any, // 'REAL' | 'FAKE' | 'MISLEADING' | 'UNVERIFIED'
-      confidence: item.confidence,
-      explanation: `Archived analysis for: "${item.sourceText.substring(0, 50)}..."`,
-      keyPoints: ["Archived summary loaded from history."],
-      sources: [
-        { title: "Archived Context Source", uri: "https://example.com/archive", verified: true }
-      ],
-      categories: { bias: 0.5, sensationalism: 0.5, logicalConsistency: 0.5 }
-    };
-    onSelectResult(restoredResult);
+  const loadFullResult = (item: HistoryItem) => {
     onClose();
+    navigate(`/history/${item.id}`);
   };
 
   return (
@@ -178,7 +167,7 @@ const HistoryPanel: React.FC<HistoryPanelProps> = ({ isOpen, onClose, onSelectRe
                     <div className="flex items-center justify-between mt-auto">
                       <div className="flex items-center gap-4">
                         <div className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-                          Score: <span className="text-indigo-400">{Math.round(item.confidence * 100)}%</span>
+                          Score: <span className="text-indigo-400">{Math.round(item.confidence)}%</span>
                         </div>
                       </div>
                       <button className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest text-indigo-400 transition-all">

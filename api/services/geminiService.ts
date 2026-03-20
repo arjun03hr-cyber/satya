@@ -30,6 +30,40 @@ const extractJson = (text: string) => {
 };
 
 /**
+ * Direct call to Gemini to generate text embeddings.
+ */
+export const embedText = async (text: string): Promise<number[] | null> => {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  
+  if (!apiKey) {
+    console.warn("[Gemini Service] API Key missing, skipping embedding.");
+    return null;
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const MODEL = "embedding-001"; // "text-embedding-004" may not be fully supported by this v1beta SDK yet
+
+  try {
+    const response = await ai.models.embedContent({
+      model: MODEL,
+      contents: text,
+    });
+
+    if (!response.embeddings || response.embeddings.length === 0 || !response.embeddings[0].values) {
+      console.warn("[Gemini Service] Empty embedding received.");
+      return null;
+    }
+
+    console.log(`[Embedding] Generated successfully (${MODEL})`);
+    return response.embeddings[0].values;
+  } catch (error: any) {
+    console.error(`[Gemini Service] ❌ Embedding generation failed, skipping vector search. Error: ${error.message}`);
+    // Return null instead of throwing so the pipeline continues
+    return null;
+  }
+};
+
+/**
  * Direct call to Gemini. Should be wrapped in retry logic by the caller.
  */
 export const callGeminiAPI = async (newsText: string): Promise<AnalysisResult> => {

@@ -87,8 +87,20 @@ const ResultsCard: React.FC<ResultsCardProps> = ({ result, onReset }) => {
   const risk = getRiskLevel(result.confidence, result.verdict);
 
   const getFavicon = (uri: string) => {
-    try { return `https://www.google.com/s2/favicons?domain=${new URL(uri).hostname}&sz=64`; }
+    try { 
+      if (!uri || uri === "#") return null;
+      return `https://www.google.com/s2/favicons?domain=${new URL(uri).hostname}&sz=64`; 
+    }
     catch { return null; }
+  };
+
+  const getHostname = (uri: string) => {
+    try {
+      if (!uri || uri === "#") return "Internal Node";
+      return new URL(uri).hostname;
+    } catch {
+      return "External Source";
+    }
   };
 
   // Staggered card animation variants
@@ -181,6 +193,27 @@ const ResultsCard: React.FC<ResultsCardProps> = ({ result, onReset }) => {
                 <span className="text-[8px] font-bold text-zinc-500 uppercase tracking-widest">Analysis Complete</span>
               </motion.div>
 
+              {/* Cache & Popularity Badges */}
+              {result.cached && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[9px] font-black uppercase tracking-widest"
+                >
+                  <Zap className="w-3 h-3" />
+                  Verified Earlier
+                </motion.div>
+              )}
+              {result.search_count && result.search_count > 1 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 text-[9px] font-black uppercase tracking-widest"
+                >
+                  🔥 Checked by {result.search_count} users
+                </motion.div>
+              )}
+
               {/* Fake Risk Score Badge */}
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
@@ -236,7 +269,7 @@ const ResultsCard: React.FC<ResultsCardProps> = ({ result, onReset }) => {
           {/* Key Points */}
           <div className="space-y-2.5">
             <h5 className="text-[9px] font-bold text-zinc-600 uppercase tracking-[0.4em]">Key Findings</h5>
-            {(result.keyPoints || []).map((p, i) => (
+            {(result?.keyPoints || []).map((p, i) => (
               <motion.div
                 key={i}
                 custom={i}
@@ -247,7 +280,7 @@ const ResultsCard: React.FC<ResultsCardProps> = ({ result, onReset }) => {
                 whileHover={{ x: 4, transition: { duration: 0.2 } }}
               >
                 <span className="text-[10px] font-black text-zinc-700 pt-1 group-hover:text-indigo-400 transition-colors">0{i+1}</span>
-                <p className="text-sm font-medium text-zinc-400 leading-relaxed">{p}</p>
+                <p className="text-sm font-medium text-zinc-400 leading-relaxed">{p || "Verification detail pending..."}</p>
               </motion.div>
             ))}
           </div>
@@ -280,10 +313,10 @@ const ResultsCard: React.FC<ResultsCardProps> = ({ result, onReset }) => {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-zinc-300 truncate uppercase tracking-tight group-hover:text-indigo-400 transition-colors">{s.title}</span>
+                    <span className="text-[10px] font-bold text-zinc-300 truncate uppercase tracking-tight group-hover:text-indigo-400 transition-colors">{s.title || "Verification Link"}</span>
                     {s.verified ? <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" /> : <HelpCircle className="w-3 h-3 text-zinc-600 shrink-0" />}
                   </div>
-                  <span className="text-[8px] font-mono text-zinc-700 truncate block">{new URL(s.uri).hostname}</span>
+                  <span className="text-[8px] font-mono text-zinc-700 truncate block">{getHostname(s.uri)}</span>
                 </div>
                 <ExternalLink className="w-3 h-3 text-zinc-800 group-hover:text-indigo-400 transition-colors shrink-0" />
               </motion.a>

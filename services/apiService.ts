@@ -54,15 +54,79 @@ class ApiService {
   }
 
   // --- Scans ---
-  async analyzeText(text: string) {
-    return this.fetch('/analyze', {
-      method: 'POST',
-      body: JSON.stringify({ text }),
-    });
+  async analyzeText(text: string, forceAI: boolean = false): Promise<any> {
+    try {
+      const res = await this.fetch('/analyze', {
+        method: 'POST',
+        body: JSON.stringify({ text, forceAI }),
+      });
+
+      // Response validation and schema guard
+      if (!res || typeof res !== 'object') {
+        throw new Error("Invalid API response format");
+      }
+
+      // Ensure all required fields exist with safe defaults
+      return {
+        verdict: res.verdict || 'UNVERIFIED',
+        confidence: typeof res.confidence === 'number' ? res.confidence : 0,
+        explanation: res.explanation || "No clarification available.",
+        keyPoints: Array.isArray(res.keyPoints) ? res.keyPoints : [],
+        sources: Array.isArray(res.sources) ? res.sources.map((s: any) => ({
+          title: s?.title || "Verification Node",
+          uri: s?.uri || "#",
+          verified: !!s?.verified
+        })) : [],
+        categories: {
+          bias: res.categories?.bias ?? 0,
+          sensationalism: res.categories?.sensationalism ?? 0,
+          logicalConsistency: res.categories?.logicalConsistency ?? 0,
+        },
+        cached: !!res.cached,
+        search_count: res.search_count ?? 0
+      };
+    } catch (err) {
+      console.error("ANALYZE API ERROR:", err);
+      throw err;
+    }
   }
 
   async getHistory() {
     return this.fetch('/history');
+  }
+
+  async getHistoryResult(id: string): Promise<any> {
+    try {
+      const res = await this.fetch(`/history?id=${id}`);
+      
+      // Response validation and schema guard
+      if (!res || typeof res !== 'object') {
+        throw new Error("Invalid API response format");
+      }
+
+      // Ensure all required fields exist with safe defaults
+      return {
+        verdict: res.verdict || 'UNVERIFIED',
+        confidence: typeof res.confidence === 'number' ? res.confidence : 0,
+        explanation: res.explanation || "No clarification available.",
+        keyPoints: Array.isArray(res.keyPoints) ? res.keyPoints : [],
+        sources: Array.isArray(res.sources) ? res.sources.map((s: any) => ({
+          title: s?.title || "Verification Node",
+          uri: s?.uri || "#",
+          verified: !!s?.verified
+        })) : [],
+        categories: {
+          bias: res.categories?.bias ?? 0,
+          sensationalism: res.categories?.sensationalism ?? 0,
+          logicalConsistency: res.categories?.logicalConsistency ?? 0,
+        },
+        cached: !!res.cached,
+        search_count: res.search_count ?? 0
+      };
+    } catch (err) {
+      console.error("GET HISTORY RESULT ERROR:", err);
+      throw err;
+    }
   }
 
   async deleteHistory(id: string) {

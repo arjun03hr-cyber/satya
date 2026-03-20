@@ -10,6 +10,8 @@ export interface AnalysisResult {
     sensationalism: number;
     logicalConsistency: number;
   };
+  cached?: boolean;
+  search_count?: number;
 }
 
 // Database types

@@ -13,29 +13,50 @@ import { Link } from 'react-router-dom';
 
 const Home: React.FC = () => {
   const [status, setStatus] = useState<'idle' | 'analyzing' | 'result'>('idle');
+  const [currentText, setCurrentText] = useState('');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const { user, isAdmin, signOut } = useAuth();
 
 
-  const handleAnalyze = async (text: string) => {
+  const handleAnalyze = async (text: string, forceAI = false) => {
+    if (!text || text.trim().length < 10) {
+      setError('Text too short for analysis. Please provide at least 10 characters.');
+      return;
+    }
+
     setStatus('analyzing');
     setError(null);
+    setCurrentText(text);
+
     try {
-      const data = await apiService.analyzeText(text);
+      console.log("ANALYZING INPUT:", text);
+      const data = await apiService.analyzeText(text, forceAI);
+      
+      if (!data) {
+        throw new Error("No analysis data returned from server.");
+      }
+
+      console.log("ANALYSIS SUCCESS:", data);
       setResult(data);
       setStatus('result');
     } catch (err: any) {
+      console.error("ANALYSIS FLOW ERROR:", err);
       const msg: string = err.message || '';
+      
       if (msg.toLowerCase().includes('quota') || msg.includes('429') || msg.toLowerCase().includes('rate')) {
-        setError('AI service is temporarily busy. Please wait a few seconds and try again.');
+        setError('AI service is temporarily busy (Rate Limit). Please wait 10-15 seconds and try again.');
       } else if (msg.toLowerCase().includes('throttle') || msg.toLowerCase().includes('too many')) {
-        setError('Too many requests. Please wait a moment before analyzing again.');
+        setError('Request throttled. Please wait a moment before analyzing again.');
+      } else if (msg.toLowerCase().includes('safety')) {
+        setError('Your input triggered a safety filter. Please try different content.');
       } else {
-        setError(msg || 'Verification failed. Please try again.');
+        setError(msg || 'Verification failed. Our neural nodes might be offline. Please try again.');
       }
+      
       setStatus('idle');
+      setResult(null);
     }
   };
 

@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifyToken } from './middleware/auth.js';
-import { callGeminiAPI, AnalysisError } from './services/geminiService.js';
-import { hashText, executeWithRetry } from './utils/helpers.js';
+import { callGeminiAPI, AnalysisError, embedText } from './services/geminiService.js';
+import { hashText, executeWithRetry, normalizeUrl, normalizeQuery } from './utils/helpers.js';
 import { supabaseServer } from './lib/supabaseServer.js';
 
 // In-memory per-user throttle (5-second cooldown between Gemini requests)
@@ -63,14 +63,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 2. Strict Input Validation
-    let { text } = req.body;
+    let { text, forceAI } = req.body;
     
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ error: 'Invalid input: text is required.' });
     }
 
     text = text.trim();
-    console.log(`[API /analyze] Input text: "${text.substring(0, 80)}..." (${text.length} chars)`);
+    console.log(`[API /analyze] Input text: "${text.substring(0, 80)}..." (${text.length} chars), forceAI: ${!!forceAI}`);
 
     if (text.length < 10) {
       return res.status(400).json({ error: 'Input text too short. Please provide at least 10 characters.' });
@@ -79,35 +79,104 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Input text too long. Maximum 5000 characters allowed.' });
     }
 
-    // 3. Hash Input
-    const inputHash = hashText(text);
+    // 3. Preprocessing (Hybrid Retrieval Setup)
+    const inputHash = hashText(text); // Keeping for user's personal history record
+    
+    let isUrl = false;
+    try {
+      new URL(text);
+      isUrl = true;
+    } catch {
+      isUrl = false;
+    }
+    
+    let urlHash = null;
+    let normQuery = '';
+    if (isUrl) {
+      urlHash = hashText(normalizeUrl(text));
+    } else {
+      normQuery = normalizeQuery(text);
+    }
+    
+    let queryEmbedding: number[] | null = null;
+    
+    // Helper to log user history on cache hit
+    const logHistoryAsync = (result: any) => {
+      if (uid !== 'anonymous') {
+         supabaseServer.from('analysis_history').insert({
+          user_id: uid, content: text, input_hash: inputHash,
+          verdict: result.verdict, confidence: result.confidence,
+          risk_score: result.categories?.sensationalism || 0,
+          explanation: result.explanation, key_points: result.keyPoints || [],
+          sources: result.sources || [], categories: result.categories || {}
+        }).then(({error}) => {
+          if (error) console.error('[API /analyze] Cache hit history recording failed:', error);
+        });
+      }
+    };
 
-    // 4. Cache Lookup via Supabase
-    const { data: cached, error: cacheError } = await supabaseServer
-      .from('analysis_history')
-      .select('*')
-      .eq('input_hash', inputHash)
-      .maybeSingle();
-
-    if (cacheError) {
-      console.error('[API /analyze] ⚠️ Supabase cache lookup error:', cacheError);
+    // 4. Hybrid Cache Search
+    if (!forceAI) {
+      // Step 1: URL Match (Fastest)
+      if (isUrl && urlHash) {
+        const { data: urlMatch } = await supabaseServer
+          .from('analysis_cache')
+          .select('*')
+          .eq('url_hash', urlHash)
+          .maybeSingle();
+          
+        if (urlMatch) {
+          console.log(`[Cache] 🎯 URL CACHE HIT for ${urlHash} (${Date.now() - requestStartTime}ms)`);
+          supabaseServer.from('analysis_cache').update({ search_count: urlMatch.search_count + 1 }).eq('id', urlMatch.id).then();
+          logHistoryAsync(urlMatch.result);
+          return res.status(200).json({ ...urlMatch.result, cached: true, search_count: urlMatch.search_count + 1 });
+        }
+      } 
+      else if (!isUrl) {
+         // Step 2: Semantic Vector Search
+         queryEmbedding = await embedText(text);
+         
+         if (queryEmbedding) {
+           try {
+             const { data: vectorMatches } = await supabaseServer
+               .rpc('match_analysis_cache', {
+                 query_embedding: queryEmbedding,
+                 match_threshold: 0.85,
+                 match_count: 1
+               });
+               
+             if (vectorMatches && vectorMatches.length > 0) {
+               const bestMatch = vectorMatches[0];
+               console.log(`[Cache] Vector similarity match found (sim: ${bestMatch.similarity}) (${Date.now() - requestStartTime}ms)`);
+               supabaseServer.from('analysis_cache').update({ search_count: bestMatch.search_count + 1 }).eq('id', bestMatch.id).then();
+               logHistoryAsync(bestMatch.result);
+               return res.status(200).json({ ...bestMatch.result, cached: true, search_count: bestMatch.search_count + 1 });
+             }
+           } catch (e) {
+              console.error('[API /analyze] Vector search failed:', e);
+           }
+         }
+         
+         // Step 3: Keyword Search Fallback
+         if (normQuery.length > 5) {
+           const { data: textMatches } = await supabaseServer
+             .from('analysis_cache')
+             .select('*')
+             .ilike('query_text', `%${normQuery.substring(0, 80)}%`)
+             .limit(1);
+             
+           if (textMatches && textMatches.length > 0) {
+               const bestMatch = textMatches[0];
+               console.log(`[Cache] Keyword match found (${Date.now() - requestStartTime}ms)`);
+               supabaseServer.from('analysis_cache').update({ search_count: bestMatch.search_count + 1 }).eq('id', bestMatch.id).then();
+               logHistoryAsync(bestMatch.result);
+               return res.status(200).json({ ...bestMatch.result, cached: true, search_count: bestMatch.search_count + 1 });
+           }
+         }
+      }
     }
 
-    if (cached) {
-      console.log(`[API /analyze] 🎯 CACHE HIT for hash ${inputHash.substring(0,8)}... (${Date.now() - requestStartTime}ms)`);
-      return res.status(200).json({
-        verdict: cached.verdict,
-        confidence: cached.confidence,
-        fake_risk_score: cached.risk_score || 0,
-        explanation: cached.explanation,
-        keyPoints: cached.key_points || [],
-        sources: cached.sources || [],
-        categories: cached.categories || {},
-        cached: true
-      });
-    }
-
-    console.log(`[API /analyze] CACHE MISS for hash ${inputHash.substring(0,8)}...`);
+    console.log(`[AI] Running Gemini verification...`);
 
     // 5. Service Execution with Retry & Exponential Backoff
     const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -132,7 +201,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[API /analyze] Result verdict: ${result.verdict}, confidence: ${result.confidence}`);
 
     // 6. Synchronous Persist to DB before completing response
-    // Check if user is fully authenticated before inserting to keep DB clean (ignore anonymous users)
+    const resultToStore = {
+      verdict: result.verdict,
+      confidence: result.confidence,
+      fake_risk_score: result.categories?.sensationalism || 0,
+      explanation: result.explanation,
+      keyPoints: result.keyPoints || [],
+      sources: result.sources || [],
+      categories: result.categories || {}
+    };
+
+    // User History Update
     if (uid !== 'anonymous') {
       const { error: dbError } = await supabaseServer
         .from('analysis_history')
@@ -150,12 +229,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
 
       if (dbError) {
-        console.error('[API /analyze] ❌ Supabase DB save failed:', dbError);
-      } else {
-        console.log(`[API /analyze] 💾 DB save complete in Supabase.`);
+        console.error('[API /analyze] ❌ Supabase DB History save failed:', dbError);
       }
     } else {
-      console.log(`[API /analyze] ⚠️ Skipped DB insert: User is anonymous.`);
+      console.log(`[API /analyze] ⚠️ Skipped DB history insert: User is anonymous.`);
+    }
+
+    // Global Cache Update
+    try {
+      if (!isUrl && !queryEmbedding) {
+        queryEmbedding = await embedText(text); // Make sure we have the embedding
+      }
+      
+      const sourceUrls = (result.sources || []).map((s: any) => s.uri).filter(Boolean);
+      
+      const { error: cacheDBError } = await supabaseServer
+        .from('analysis_cache')
+        .insert({
+           query_text: text,
+           query_embedding: queryEmbedding || Array(768).fill(0), // If URL and embedding failed, fallback zeros
+           url_hash: urlHash,
+           source_urls: sourceUrls,
+           result: resultToStore,
+           credibility_score: result.confidence
+        });
+
+      if (cacheDBError) {
+        console.error('[API /analyze] ❌ Supabase Cache save failed:', cacheDBError);
+      } else {
+        console.log(`[API /analyze] 💾 DB global cache save complete.`);
+      }
+    } catch (e) {
+      console.error('[API /analyze] Failed to save to global cache:', e);
     }
 
     // 7. Success Response
@@ -180,7 +285,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(500).json({ 
-      error: error.message || 'Internal server error during analysis.',
+      verdict: 'UNVERIFIED',
+      confidence: 0,
+      explanation: 'Internal server error during analysis. ' + (error.message || ''),
+      keyPoints: [],
+      sources: [],
+      categories: { bias: 0, sensationalism: 0, logicalConsistency: 0 },
+      cached: false,
+      error: error.message || 'Internal server error',
       detail: 'Unhandled exception in analyze handler'
     });
   }
